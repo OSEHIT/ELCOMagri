@@ -2,7 +2,7 @@
 
 > **Visualisation de la dynamique et des spécialisations territoriales des productions animales en France (2010-2024)**
 
-Ce projet a été réalisé dans un cadre académique pour explorer, analyser et visualiser les données de la Statistique Agricole Annuelle (SAA). L'objectif est de fournir un tableau de bord interactif permettant de comprendre les volumes de production et le nombre de têtes pour 4 grands groupes d'animaux (Bovins, Porcins, Ovins, Caprins) répartis en 19 catégories.
+Ce projet a été réalisé pour explorer, analyser et visualiser les données de la Statistique Agricole Annuelle (SAA). L'objectif est de fournir un tableau de bord interactif permettant de comprendre les volumes de production et le nombre de têtes pour 4 grands groupes d'animaux (Bovins, Porcins, Ovins, Caprins) répartis en 19 catégories.
 
 ## 🚀 Fonctionnalités du Dashboard
 
