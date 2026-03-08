@@ -16,12 +16,12 @@
     const GROUPS = Object.keys(COLORS);
 
     const FORCE_PARAMS = {
-        [VIEW.CARTO]: { pos: 0.15, coll: 0.8, charge: -2, decay: 0.02 },
-        [VIEW.FRANCE]: { pos: 0.40, coll: 0.9, charge: -10, decay: 0.015 },
-        [VIEW.DEPT]: { pos: 0.50, coll: 0.9, charge: -1, decay: 0.02 },
+        [VIEW.CARTO]: { pos: 0.5, coll: 0.8, decay: 0.02 },
+        [VIEW.FRANCE]: { pos: 0.40, coll: 0.9, decay: 0.015 },
+        [VIEW.DEPT]: { pos: 2.5, coll: 0.9, decay: 0.02 },
     };
 
-    const BUBBLE = { rMin: 3, rMax: 38, frMin: 30, frMax: 90, deptFactor: 0.55, pad: 1.5, opacity: 0.72 };
+    const BUBBLE = { rMin: 3, rMax: 38, frMin: 30, frMax: 90, deptFactor: 0.35, pad: 1.5, opacity: 0.72 };
     const PLAY_MS = 1200;
 
     /* ——————————————————————————————————————————————————
@@ -31,7 +31,6 @@
         raw: [],
         geo: null,
         year: 2010,
-        // Opt-in: empty Set = show ALL
         groups: new Set(),
         cats: new Set(),
         view: VIEW.CARTO,
@@ -47,7 +46,7 @@
        DOM CACHE
     —————————————————————————————————————————————————— */
     const $ = (id) => document.getElementById(id);
-    let svg, gMap, gBubbles, gLabels, path, projection, zoom;
+    let svg, gMap, gBubbles, gLabels, gBubbleLegend, path, projection, zoom;
 
     const DOM = {};
     function cacheDom() {
@@ -55,7 +54,7 @@
             "accordion-menu", "reset-filters",
             "loader", "m-deps", "m-cats", "m-rows", "ticks", "back", "vinfo",
             "tip", "tn", "tl", "tp", "tb", "tw",
-            "pie-box", "pie-svg",
+            "pie-box", "pie-svg", "donut-legend",
             "area-section", "area-svg", "area-legend",
             "area-tooltip", "pie-tooltip",
             "btn-info", "info-modal", "close-modal"].forEach((id) => {
@@ -118,10 +117,13 @@
         gBubbles = svg.append("g").attr("id", "bubbles");
         gLabels = svg.append("g").attr("id", "labels");
 
+        // Bubble size legend
+        gBubbleLegend = svg.append("g").attr("id", "bubble-legend");
+
+        const margin = Math.min(W, H) * 0.05;
         projection = d3.geoConicConformal()
-            .center([2.5, 46.5])
-            .scale(Math.min(W, H) * 4.2)
-            .translate([W / 2, H / 2]);
+            .parallels([44, 49])
+            .fitExtent([[margin, margin], [W - margin, H - margin]], S.geo);
 
         path = d3.geoPath().projection(projection);
 
@@ -144,9 +146,16 @@
             .on("mouseout", () => { mapTip.style.display = "none"; });
 
         S.geo.features.forEach((f) => {
-            S.centroids[f.properties.code] = path.centroid(f);
+            const c = path.centroid(f);
+            const code = f.properties.code;
+            // Corse offset
+            if (code === "2A" || code === "2B") {
+                c[0] -= 0;
+                c[1] += 0;
+            }
+            S.centroids[code] = c;
             const b = path.bounds(f);
-            S.areas[f.properties.code] = (b[1][0] - b[0][0]) * (b[1][1] - b[0][1]);
+            S.areas[code] = (b[1][0] - b[0][0]) * (b[1][1] - b[0][1]);
         });
 
         zoom = d3.zoom().scaleExtent([1, 8]).on("zoom", (e) => {
@@ -171,6 +180,105 @@
     }
 
     /* ——————————————————————————————————————————————————
+       BUBBLE SIZE LEGEND
+    —————————————————————————————————————————————————— */
+    function drawBubbleLegend() {
+        if (!rScale || !gBubbleLegend) return;
+
+        const maxVal = rScale.domain()[1];
+        if (!maxVal || maxVal <= 0) {
+            gBubbleLegend.selectAll("*").remove();
+            return;
+        }
+
+        // 3 reference values: max, 50%, 10%
+        const refs = [
+            { value: maxVal, label: fmtLegend(maxVal) },
+            { value: maxVal * 0.5, label: fmtLegend(maxVal * 0.5) },
+            { value: maxVal * 0.1, label: fmtLegend(maxVal * 0.1) },
+        ];
+
+        const maxR = rScale(maxVal);
+        const legendH = maxR * 2 + 24;
+
+        const box = DOM.stage.getBoundingClientRect();
+        const svgH = box.height;
+        const ox = 80;
+        const oy = svgH - legendH - 40;
+
+        gBubbleLegend.attr("transform", `translate(${ox},${oy})`);
+
+        gBubbleLegend.selectAll("*").remove();
+
+        // Title
+        gBubbleLegend.append("text")
+            .attr("x", 0)
+            .attr("y", -4)
+            .attr("font-size", "10px")
+            .attr("font-weight", "bold")
+            .attr("fill", "#333")
+            .text("Production (tonnes)");
+
+        const baseX = maxR;
+        const baseY = legendH;
+
+        const MIN_SPACING = 14;
+        const labelData = refs.map((ref) => {
+            const r = Math.max(1.5, rScale(ref.value));
+            const cy = baseY - r;
+            const naturalY = cy - r;
+            return { ...ref, r, cy, naturalY, labelY: naturalY };
+        });
+
+        labelData.sort((a, b) => b.naturalY - a.naturalY);
+        for (let i = 1; i < labelData.length; i++) {
+            const prev = labelData[i - 1].labelY;
+            if (labelData[i].labelY > prev - MIN_SPACING) {
+                labelData[i].labelY = prev - MIN_SPACING;
+            }
+        }
+
+        labelData.forEach((ref) => {
+            // Circle
+            gBubbleLegend.append("circle")
+                .attr("cx", baseX)
+                .attr("cy", ref.cy)
+                .attr("r", ref.r)
+                .attr("fill", "none")
+                .attr("stroke", "#999")
+                .attr("stroke-width", 1);
+
+            // Dashed line from top of circle to the label Y
+            const lineEndX = maxR * 2 + 8;
+            gBubbleLegend.append("line")
+                .attr("x1", baseX)
+                .attr("y1", ref.naturalY)
+                .attr("x2", lineEndX)
+                .attr("y2", ref.labelY)
+                .attr("stroke", "#aaa")
+                .attr("stroke-width", 0.8)
+                .attr("stroke-dasharray", "2,2");
+
+            // Label text
+            gBubbleLegend.append("text")
+                .attr("x", lineEndX + 4)
+                .attr("y", ref.labelY)
+                .attr("dy", "0.35em")
+                .attr("font-size", "10px")
+                .attr("font-weight", "bold")
+                .attr("fill", "#333")
+                .attr("text-anchor", "start")
+                .text(ref.label);
+        });
+    }
+
+    function fmtLegend(n) {
+        if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + " M t";
+        if (n >= 1e3) return Math.round(n / 1e3).toLocaleString("fr-FR") + " k t";
+        return Math.round(n).toLocaleString("fr-FR") + " t";
+    }
+
+    /* ——————————————————————————————————————————————————
        MAP OPACITY PER VIEW
     —————————————————————————————————————————————————— */
     function paintMap() {
@@ -184,10 +292,10 @@
                 .attr("stroke", "#a8a29e").attr("stroke-width", 0.5);
         } else {
             depts
-                .attr("opacity", (d) => d.properties.code === S.dept ? 1 : 0.3)
+                .attr("opacity", (d) => d.properties.code === S.dept ? 1 : 0.15)
                 .attr("fill", (d) => d.properties.code === S.dept ? "#fff7ed" : "#f0eeec")
-                .attr("stroke", (d) => d.properties.code === S.dept ? "#ea580c" : "#a8a29e")
-                .attr("stroke-width", (d) => d.properties.code === S.dept ? 1.5 : 0.4);
+                .attr("stroke", (d) => d.properties.code === S.dept ? "#ea580c" : "#d4d0cc")
+                .attr("stroke-width", (d) => d.properties.code === S.dept ? 1.5 : 0.3);
         }
     }
 
@@ -195,24 +303,23 @@
        ZOOM HELPERS
     —————————————————————————————————————————————————— */
     function zoomReset() {
-        svg.call(zoom.transform, d3.zoomIdentity);
+        svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity);
     }
 
     function zoomTo(feat) {
         const box = DOM.stage.getBoundingClientRect();
         const [[x0, y0], [x1, y1]] = path.bounds(feat);
-        const sc = Math.min(8, 0.65 / Math.max((x1 - x0) / box.width, (y1 - y0) / box.height));
+        const sc = Math.min(8, 0.9 / Math.max((x1 - x0) / box.width, (y1 - y0) / box.height));
         const newTransform = d3.zoomIdentity
             .translate(box.width / 2 - sc * (x0 + x1) / 2, box.height / 2 - sc * (y0 + y1) / 2)
             .scale(sc);
-        svg.call(zoom.transform, newTransform);
+        svg.transition().duration(750).call(zoom.transform, newTransform);
     }
 
     /* ——————————————————————————————————————————————————
        3. BUBBLE DATA PER VIEW
     —————————————————————————————————————————————————— */
     function filteredRaw() {
-        // Empty Set = show all (opt-in pattern)
         let d = S.raw.filter((r) => r.annee === S.year
             && (S.groups.size === 0 || S.groups.has(r.groupe))
             && (S.cats.size === 0 || S.cats.has(r.categorie))
@@ -280,6 +387,13 @@
     function deptBubbles() {
         const c = S.centroids[S.dept];
         if (!c) return [];
+        const feat = S.geo.features.find((f) => f.properties.code === S.dept);
+        let cx = c[0], cy = c[1];
+        if (feat) {
+            const [[bx0, by0], [bx1, by1]] = path.bounds(feat);
+            cx = (bx0 + bx1) / 2;
+            cy = (by0 + by1) / 2;
+        }
         let d = S.raw.filter((r) => r.annee === S.year && r.code_dep === S.dept
             && (S.groups.size === 0 || S.groups.has(r.groupe))
             && (S.cats.size === 0 || S.cats.has(r.categorie))
@@ -289,7 +403,7 @@
             code_dep: r.code_dep, groupe: r.groupe, categorie: r.categorie,
             departement: r.departement, region: r.region,
             production: r.production, nb_tetes: r.nb_tetes, poids_moyen: r.poids_moyen,
-            cx: c[0], cy: c[1], x: c[0], y: c[1], type: "detail",
+            cx: cx, cy: cy, x: cx, y: cy, type: "detail",
         }));
     }
 
@@ -311,7 +425,16 @@
             const a = S.areas[S.dept] || 5000;
             const ma = d3.max(Object.values(S.areas));
             const f = Math.max(0.3, Math.min(1, Math.sqrt(a / ma)));
-            rScale = d3.scaleSqrt().domain([0, mx]).range([2, Math.max(10, BUBBLE.rMax * f * BUBBLE.deptFactor)]);
+            // Compute the same zoom scale that zoomTo() will apply
+            const feat = S.geo.features.find((ft) => ft.properties.code === S.dept);
+            let sc = 1;
+            if (feat) {
+                const stageBox = DOM.stage.getBoundingClientRect();
+                const [[bx0, by0], [bx1, by1]] = path.bounds(feat);
+                sc = Math.min(8, 0.9 / Math.max((bx1 - bx0) / stageBox.width, (by1 - by0) / stageBox.height));
+            }
+            const maxR = Math.max(6, BUBBLE.rMax * f * BUBBLE.deptFactor / sc);
+            rScale = d3.scaleSqrt().domain([0, mx]).range([2, maxR]);
         } else {
             rScale = d3.scaleSqrt().domain([0, mx]).range([BUBBLE.rMin, BUBBLE.rMax]);
         }
@@ -322,14 +445,23 @@
 
         const sel = gBubbles.selectAll(".bubble").data(S.bubbles, (d) => d.id);
 
-        sel.exit().remove();
+        sel.exit()
+            .transition().duration(400).ease(d3.easeCubicOut)
+            .attr("r", 0)
+            .attr("opacity", 0)
+            .remove();
 
         const ent = sel.enter().append("circle")
             .attr("class", "bubble")
+            .attr("cx", (d) => d.x)
+            .attr("cy", (d) => d.y)
+            .attr("r", 0)
+            .attr("opacity", 0)
             .attr("fill", (d) => COLORS[d.groupe])
             .on("mouseover", tipShow).on("mousemove", tipMove).on("mouseout", tipHide);
 
         ent.merge(sel)
+            .transition().duration(750).ease(d3.easeCubicOut)
             .attr("cx", (d) => d.x)
             .attr("cy", (d) => d.y)
             .attr("r", (d) => rScale(d.production))
@@ -365,7 +497,7 @@
         }
     }
 
-    /* ——— FORCE  ——— */
+    /* ——— FORCE ——— */
     function resolveForce() {
         const fp = FORCE_PARAMS[S.view];
 
@@ -373,11 +505,25 @@
             .force("x", d3.forceX((d) => d.cx).strength(fp.pos))
             .force("y", d3.forceY((d) => d.cy).strength(fp.pos))
             .force("collide", d3.forceCollide((d) => rScale(d.production) + BUBBLE.pad).strength(fp.coll).iterations(3))
-            .force("charge", d3.forceManyBody().strength(fp.charge))
             .alphaDecay(fp.decay)
             .stop();
 
-        for (let i = 0; i < 300; ++i) sim.tick();
+        let bounds = null;
+        if (S.view === VIEW.DEPT && S.dept) {
+            const feat = S.geo.features.find((f) => f.properties.code === S.dept);
+            if (feat) bounds = path.bounds(feat);
+        }
+
+        for (let i = 0; i < 300; ++i) {
+            sim.tick();
+            if (bounds) {
+                S.bubbles.forEach((d) => {
+                    const r = rScale(d.production);
+                    d.x = Math.max(bounds[0][0] + r, Math.min(bounds[1][0] - r, d.x));
+                    d.y = Math.max(bounds[0][1] + r, Math.min(bounds[1][1] - r, d.y));
+                });
+            }
+        }
     }
 
     /* ——————————————————————————————————————————————————
@@ -398,7 +544,7 @@
     function pct(n, total) { return total > 0 ? (n / total * 100).toFixed(1) + "%" : "0%"; }
 
     /* ——————————————————————————————————————————————————
-       PIE CHART 
+       PIE CHART
     —————————————————————————————————————————————————— */
     const PIE_R = 100, PIE_IR = 45;
     let pieSvg, pieGroup;
@@ -453,40 +599,49 @@
         const arc = d3.arc().innerRadius(PIE_IR).outerRadius(PIE_R);
         const arcs = pie(entries);
 
-        // Instant join 
+        function arcTween(a) {
+            const i = d3.interpolate(this._current, a);
+            this._current = i(1);
+            return function (t) { return arc(i(t)); };
+        }
+
         const paths = pieGroup.selectAll(".pie-slice").data(arcs, (d) => d.data[0]);
 
-        paths.exit().remove();
+        paths.exit()
+            .transition().duration(400).ease(d3.easeCubicOut)
+            .attr("opacity", 0)
+            .remove();
 
         const pieTip = DOM["pie-tooltip"];
         const enter = paths.enter().append("path")
             .attr("class", "pie-slice")
+            .attr("d", arc)
+            .each(function (d) { this._current = d; })
             .on("click", (e, d) => {
                 const cat = d.data[0];
                 pickCat(cat);
             });
 
-        enter.merge(paths)
+        const merged = enter.merge(paths);
+
+        merged
             .attr("fill", (d) => catColorMap[d.data[0]] || "#ccc")
             .attr("opacity", 1)
-            .attr("d", arc)
             .on("mouseover", function () {
                 pieTip.style.display = "block";
             })
             .on("mousemove", function (event, d) {
                 const cat = d.data[0];
                 const val = d.data[1];
-                // Dynamic color from category color map
                 const catColor = catColorMap[cat] || "#333";
                 pieTip.innerHTML =
                     "<span style=\"color:" + catColor + ";font-weight:bold;\">" + cat + "</span><br>" +
                     "Production : " + fmt(val) + " t<br>" +
                     "Pourcentage : " + pct(val, total);
 
-
                 const tW = pieTip.offsetWidth;
                 const tH = pieTip.offsetHeight;
-    
+
                 let xPos = event.pageX + 15;
                 let yPos = event.pageY + 15;
 
@@ -504,11 +659,44 @@
                 pieTip.style.display = "none";
             });
 
-        // Center text
+        merged.transition().duration(750).ease(d3.easeCubicOut)
+            .attrTween("d", arcTween);
+
         pieGroup.select(".pie-total").text(fmt(total) + " t");
         pieGroup.select(".pie-context").text(
             S.view === VIEW.DEPT && S.dept ? S.dept : String(S.year)
         );
+
+        // Donut legend 
+        const legendSel = d3.select(DOM["donut-legend"]);
+        const rows = legendSel.selectAll(".dl-row").data(entries, d => d[0]);
+        rows.exit().remove();
+
+        const rowEnter = rows.enter().append("div").attr("class", "dl-row")
+            .style("display", "flex").style("align-items", "flex-start")
+            .style("justify-content", "space-between")
+            .style("font-size", "10.5px").style("width", "100%")
+            .style("box-sizing", "border-box")
+            .style("padding", "3px 4px").style("border-radius", "3px")
+            .style("cursor", "pointer")
+            .style("margin-bottom", "2px")
+            .on("click", (e, d) => pickCat(d[0]))
+            .on("mouseover", function () { d3.select(this).style("background", "#f3f4f6"); })
+            .on("mouseout", function () { d3.select(this).style("background", "transparent"); });
+
+        rowEnter.merge(rows).html(d => {
+            const cat = d[0], val = d[1];
+            const color = catColorMap[cat] || "#ccc";
+            const p = total > 0 ? (val / total * 100).toFixed(1) : "0.0";
+            return '<div style="display:flex;align-items:flex-start;flex-grow:1;padding-right:8px;">'
+                + '<div style="flex-shrink:0;width:8px;height:8px;border-radius:1.5px;background:' + color + ';margin-top:2px;margin-right:6px;"></div>'
+                + '<div style="color:#555;white-space:normal;line-height:1.15;word-wrap:break-word;">' + cat + '</div>'
+                + '</div>'
+                + '<div style="display:flex;align-items:flex-start;flex-shrink:0;gap:8px;margin-top:1px;">'
+                + '<div style="font-weight:600;color:#444;">' + fmt(val) + ' t</div>'
+                + '<div style="color:#888;width:32px;text-align:right;font-size:10px;">' + p + '%</div>'
+                + '</div>';
+        });
     }
 
     /* ——————————————————————————————————————————————————
@@ -565,7 +753,7 @@
 
         areaChartG.append("g").attr("class", "area-y-axis area-axis area-grid");
 
-        // Time tracker line
+        // Time tracker line (synced to slider)
         timeTrackerG = areaChartG.append("g").attr("class", "time-tracker");
         timeTrackerLine = timeTrackerG.append("line")
             .attr("y1", 0)
@@ -585,8 +773,10 @@
     function updateTimeTracker(annee) {
         if (!areaXScale) return;
         const x = areaXScale(annee);
-        timeTrackerLine.attr("x1", x).attr("x2", x);
-        timeTrackerText.attr("x", x).text(annee);
+        timeTrackerLine.transition().duration(750).ease(d3.easeCubicOut)
+            .attr("x1", x).attr("x2", x);
+        timeTrackerText.transition().duration(750).ease(d3.easeCubicOut)
+            .attr("x", x).text(annee);
     }
 
     function renderGlobalTrend() {
@@ -606,8 +796,8 @@
             .range([areaInnerH, 0])
             .nice();
 
-        // Update Y axis
         areaChartG.select(".area-y-axis")
+            .transition().duration(750).ease(d3.easeCubicOut)
             .call(d3.axisLeft(yScale)
                 .ticks(5)
                 .tickFormat((d) => {
@@ -632,13 +822,19 @@
         // Areas
         const areaTip = DOM["area-tooltip"];
         const areas = areaChartG.selectAll(".area-path").data(stacked, (d) => d.key);
-        areas.exit().remove();
-        areas.enter().append("path")
+        areas.exit()
+            .transition().duration(400).ease(d3.easeCubicOut)
+            .attr("opacity", 0)
+            .remove();
+
+        const areasEnter = areas.enter().append("path")
             .attr("class", "area-path")
-            .merge(areas)
-            .attr("d", areaGen)
             .attr("fill", (d) => COLORS[d.key])
-            .attr("opacity", 0.1)
+            .attr("opacity", 0);
+
+        const mergedAreas = areasEnter.merge(areas);
+
+        mergedAreas
             .on("mouseover", function () {
                 areaTip.style.display = "block";
             })
@@ -650,14 +846,12 @@
                 const row = data.find((r) => r.year === year);
                 const production = row ? (row[key] || 0) : 0;
 
-                // Lookup nb_tetes from raw data
                 const tetesData = S.raw.filter((r) => r.annee === year && r.groupe === key);
                 const nbTetes = d3.sum(tetesData, (r) => r.nb_tetes || 0);
 
-                // Dynamic color from group color scale
                 const groupColor = COLORS[key] || "#333";
                 areaTip.innerHTML =
-                    "Année : <strong>" + year + "</strong><br>" +
+                    "Année : " + year + "<br>" +
                     "<span style=\"color:" + groupColor + ";font-weight:bold;\">" + key + "</span><br>" +
                     "Production : " + fmt(production) + " t<br>" +
                     "Têtes : " + fmt(nbTetes);
@@ -682,14 +876,25 @@
                 areaTip.style.display = "none";
             });
 
-        // Stroke lines 
+        mergedAreas.transition().duration(750).ease(d3.easeCubicOut)
+            .attr("d", areaGen)
+            .attr("fill", (d) => COLORS[d.key])
+            .attr("opacity", 0.1);
+
+        // Stroke lines
         const lines = areaChartG.selectAll(".area-stroke").data(stacked, (d) => d.key);
-        lines.exit().remove();
-        lines.enter().append("path")
+        lines.exit()
+            .transition().duration(400).ease(d3.easeCubicOut)
+            .attr("opacity", 0)
+            .remove();
+
+        const mergedLines = lines.enter().append("path")
             .attr("class", "area-stroke")
             .attr("fill", "none")
             .attr("stroke-width", 2)
-            .merge(lines)
+            .merge(lines);
+
+        mergedLines.transition().duration(750).ease(d3.easeCubicOut)
             .attr("d", lineGen)
             .attr("stroke", (d) => COLORS[d.key])
             .attr("opacity", 1);
@@ -808,7 +1013,7 @@
     }
 
     function highlightAccordion() {
-        // Empty Set = all shown 
+        // Empty Set = all shown
         const showAll = S.groups.size === 0 && S.cats.size === 0;
         DOM["reset-filters"].classList.toggle("on", showAll);
 
@@ -865,12 +1070,83 @@
     }
 
     /* ——————————————————————————————————————————————————
+       Top 3 Départements
+    —————————————————————————————————————————————————— */
+    const getMedalSvg = (color, rank) => `
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle; margin-right: 6px; transform: translateY(-1px);">
+            <circle cx="12" cy="12" r="10" fill="${color}" />
+            <circle cx="12" cy="12" r="8" stroke="white" stroke-width="1.5" fill="none" opacity="0.4"/>
+            <text x="12" y="16.5" fill="white" font-size="12" font-weight="bold" font-family="Arial, sans-serif" text-anchor="middle">${rank}</text>
+        </svg>
+    `;
+
+    function updatePodium() {
+        const data = filteredRaw();
+        const deptTotals = d3.rollups(
+            data,
+            v => d3.sum(v, d => d.production || 0),
+            d => d.departement
+        );
+        const top3 = deptTotals.sort((a, b) => b[1] - a[1]).slice(0, 3);
+        const maxVal = top3.length > 0 ? top3[0][1] : 1;
+        const colors = ['#F59E0B', '#9CA3AF', '#D97706'];
+
+        const rows = d3.select('#podium-chart').selectAll('.podium-row')
+            .data(top3, d => d[0]);
+
+        // EXIT
+        rows.exit()
+            .transition().duration(400)
+            .style('opacity', 0)
+            .style('transform', 'translateX(-15px)')
+            .remove();
+
+        // ENTER
+        const enterRows = rows.enter()
+            .append('div')
+            .attr('class', 'podium-row')
+            .style('margin-bottom', '12px')
+            .style('opacity', 0)
+            .style('transform', 'translateX(15px)');
+
+        enterRows.html(() => `
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; margin-bottom: 5px; color: #374151;">
+                <div class="podium-label" style="display: flex; align-items: center;"></div>
+                <span class="dept-val" style="font-weight: 600;"></span>
+            </div>
+            <div style="width: 100%; height: 5px; background-color: #f3f4f6; border-radius: 3px; overflow: hidden;">
+                <div class="podium-bar" style="width: 0%; height: 100%; border-radius: 3px;"></div>
+            </div>
+        `);
+
+        // ENTER + UPDATE
+        const allRows = enterRows.merge(rows);
+
+        allRows.transition().duration(500)
+            .style('opacity', 1)
+            .style('transform', 'translateX(0px)');
+
+        allRows.select('.podium-label')
+            .html((d, i) => `${getMedalSvg(colors[i], i + 1)} <span style="font-weight: 600;">${d[0]}</span>`);
+
+        allRows.select('.dept-val')
+            .text(d => `${fmt(d[1])} t`);
+
+        allRows.select('.podium-bar')
+            .transition().duration(750).ease(d3.easeCubicOut)
+            .style('width', d => `${(d[1] / maxVal) * 100}%`)
+            .style('background-color', (d, i) => colors[i]);
+    }
+
+    /* ——————————————————————————————————————————————————
        UNIFIED UPDATE
     —————————————————————————————————————————————————— */
     function updateCharts() {
         render();
+        drawBubbleLegend();
         updatePie();
         renderGlobalTrend();
+        updatePodium();
     }
 
     /* ——————————————————————————————————————————————————

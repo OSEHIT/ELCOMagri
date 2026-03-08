@@ -374,6 +374,7 @@
         .legend {
             position: absolute;
             bottom: 14px;
+            left: auto;
             right: 14px;
             background: var(--card);
             border: 1px solid var(--border);
@@ -440,6 +441,15 @@
 
         .pie-slice {
             cursor: pointer;
+        }
+
+        #donut-legend {
+            height: auto !important;
+            max-height: none !important;
+            overflow: hidden !important;
+            width: 100%;
+            box-sizing: border-box;
+            margin-top: 15px;
         }
 
         /* ——— AREA CHART ——— */
@@ -687,6 +697,22 @@
                 <button class="reset-btn on" id="reset-filters">Toutes les catégories</button>
                 <div id="accordion-menu"></div>
             </div>
+            <div id="podium-container" style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #e5e7eb;">
+                <h3
+                    style="display: flex; align-items: center; font-size: 13px; color: #4b5563; margin-bottom: 12px; text-transform: uppercase; font-weight: 600;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;">
+                        <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"></path>
+                        <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"></path>
+                        <path d="M4 22h16"></path>
+                        <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"></path>
+                        <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"></path>
+                        <path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"></path>
+                    </svg>
+                    Top 3 Départements
+                </h3>
+                <div id="podium-chart"></div>
+            </div>
         </aside>
 
         <main class="map-area" id="stage">
@@ -695,6 +721,7 @@
                     style="text-align:center;font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">
                     Répartition par catégorie</div>
                 <svg class="pie-svg" id="pie-svg" width="230" height="230"></svg>
+                <div id="donut-legend" style="margin-top:10px;max-height:250px;overflow-y:auto;"></div>
             </div>
             <div class="loader" id="loader">
                 <div class="loader-t">Chargement…</div>
@@ -760,8 +787,9 @@
             <ul>
                 <li><strong>Cartogramme</strong> – Localise les volumes de production par département.
                     Cliquez sur un département pour zoomer.</li>
-                <li><strong>Donut Chart</strong> – Montre la répartition exacte en tonnes
-                    pour la vue en cours.</li>
+                <li><strong>Donut Chart</strong> – Affiche la répartition exacte en tonnes
+                    pour la vue en cours. Ses couleurs hiérarchisées et sa légende interactive
+                    permettent d'identifier instantanément le poids de chaque sous-catégorie.</li>
                 <li><strong>Graphique en aires</strong> – Illustre l'évolution temporelle
                     globale des groupes sélectionnés.</li>
                 <li><strong>Vue France</strong> – Le bouton « Vue France » permet de regrouper
@@ -771,6 +799,8 @@
                     sélection multiple. Cliquez sur plusieurs groupes ou catégories
                     pour les additionner et comparer directement leurs volumes et évolutions
                     sur l'ensemble des graphiques.</li>
+                <li><strong>Top 3 Départements</strong> – Un podium dynamique (Bar Chart) qui identifie
+                    en temps réel les territoires leaders selon l'année et les filtres sélectionnés.</li>
             </ul>
 
             <h4>Données</h4>
@@ -785,7 +815,7 @@
 
             <div class="modal-footer">
                 <a href="public/maquette papier.jpeg" target="_blank" class="btn-maquette">Voir la Maquette Papier</a>
-                <a href="https://github.com/OSEHIT/ELCOMagri" target="_blank">
+                <a href="#" target="_blank">
                     <img src="https://img.icons8.com/ios-filled/50/e67e22/github.png" alt="GitHub Repo"
                         style="width: 40px; vertical-align: middle;">
                 </a>

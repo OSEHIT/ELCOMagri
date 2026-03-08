@@ -9,7 +9,8 @@ Ce projet a été réalisé pour explorer, analyser et visualiser les données d
 * **Cartogramme à bulles (D3 Force) :** Visualisation spatiale des volumes de production par département. Taille des bulles proportionnelle à la production.
 * **Donut Chart dynamique :** Répartition exacte (en pourcentages et en tonnes) des catégories pour l'année et/ou le département sélectionné.
 * **Graphique en aires empilées (Stacked Area Chart) :** Analyse des tendances macroéconomiques de 2010 à 2024 avec un tracker temporel synchronisé.
-* **Filtres croisés intelligents :** Sélection multiple (Opt-in) par groupes et catégories, avec mise à jour instantanée de tous les graphiques.
+* **Palmarès Dynamique (Top 3) :** Bar Chart horizontal généré dynamiquement en HTML/D3 affichant le podium des départements producteurs pour l'année et les filtres en cours
+* **Filtres croisés intelligents :** Sélection multiple par groupes et catégories, avec mise à jour instantanée de tous les graphiques.
 
 ##  Technologies Utilisées
 
